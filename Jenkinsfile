@@ -88,7 +88,7 @@ pipeline {
 
         stage('SonarQube') {
             options {
-                timeout(time: 3, unit: 'MINUTES')
+                timeout(time: 5, unit: 'MINUTES')
             }
 
             steps {
