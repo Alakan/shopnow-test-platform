@@ -1,22 +1,19 @@
 pipeline {
-
     agent any
+
+    options {
+        timestamps()
+        disableConcurrentBuilds()
+        timeout(time: 10, unit: 'MINUTES')
+    }
 
     stages {
 
-        stage('Checkout') {
-            steps {
-                echo '======================================'
-                echo 'Récupération du projet ShopNow'
-                echo '======================================'
-
-                checkout scm
-            }
-        }
-
         stage('Environment') {
             steps {
+                echo '======================================'
                 echo 'Vérification de l’environnement Jenkins'
+                echo '======================================'
 
                 sh '''
                     echo "Node.js:"
@@ -36,15 +33,25 @@ pipeline {
 
         stage('Installation') {
             steps {
+                echo '======================================'
                 echo 'Installation des dépendances'
+                echo '======================================'
 
-                sh 'npm ci'
+                sh '''
+                    npm ci \
+                      --cache "$JENKINS_HOME/.npm-cache" \
+                      --prefer-offline \
+                      --no-audit \
+                      --no-fund
+                '''
             }
         }
 
         stage('Tests unitaires') {
             steps {
-                echo 'Exécution des tests unitaires'
+                echo '======================================'
+                echo 'Tests unitaires'
+                echo '======================================'
 
                 sh 'npm run test:unit'
             }
@@ -52,7 +59,9 @@ pipeline {
 
         stage('Tests API') {
             steps {
-                echo 'Exécution des tests API'
+                echo '======================================'
+                echo 'Tests API / intégration'
+                echo '======================================'
 
                 sh 'npm run test:integration'
             }
@@ -60,23 +69,37 @@ pipeline {
 
         stage('Coverage') {
             steps {
-                echo 'Génération du rapport de couverture'
+                echo '======================================'
+                echo 'Génération de la couverture'
+                echo '======================================'
 
                 sh 'npm run test:coverage'
+
+                sh '''
+                    echo "Rapport de couverture :"
+                    ls -lh coverage/ || true
+
+                    echo ""
+                    echo "Fichier LCOV :"
+                    ls -lh coverage/lcov.info || true
+                '''
             }
         }
 
-        stage('Analyse SonarQube') {
-            steps {
+        stage('SonarQube') {
+            options {
+                timeout(time: 3, unit: 'MINUTES')
+            }
 
-                echo 'Analyse du projet avec SonarQube'
+            steps {
+                echo '======================================'
+                echo 'Analyse SonarQube'
+                echo '======================================'
 
                 script {
-
                     def scannerHome = tool 'SonarScanner'
 
                     withSonarQubeEnv('SonarQube') {
-
                         sh """
                             ${scannerHome}/bin/sonar-scanner
                         """
@@ -95,11 +118,16 @@ pipeline {
         }
 
         success {
+            echo '======================================'
             echo 'Pipeline terminé avec succès.'
+            echo '======================================'
         }
 
         failure {
-            echo 'Le pipeline a échoué.'
+            echo '======================================'
+            echo 'Pipeline en échec.'
+            echo 'Consultez les logs Jenkins pour identifier le problème.'
+            echo '======================================'
         }
     }
 }
