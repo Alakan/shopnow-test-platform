@@ -4,7 +4,23 @@ pipeline {
     options {
         timestamps()
         disableConcurrentBuilds()
-        timeout(time: 20, unit: 'MINUTES')
+
+        // Filet de sécurité uniquement : avec Node 18 pour l'analyseur
+        // SonarQube, le pipeline complet tourne en ~3 minutes.
+        //
+        // Historique : un build a été ABORTED car Jenkins a redémarré
+        // pendant l'analyse ("Resuming build ... after Jenkins restart").
+        // Pendant l'arrêt, le compteur du timeout continuait de tourner :
+        // au redémarrage, "Timeout expired 4 min 9 sec ago" => annulation.
+        // On garde donc une marge large.
+        timeout(time: 25, unit: 'MINUTES')
+    }
+
+    environment {
+        // Runtime Node utilisé par l'analyseur JavaScript de SonarQube.
+        // SonarQube 9.9 recommande Node 18 ; avec Node 22 l'analyse passe
+        // de quelques secondes à ~7 minutes (voir jenkins/Dockerfile).
+        SONAR_NODEJS = '/opt/node18/bin/node'
     }
 
     stages {
@@ -15,19 +31,26 @@ pipeline {
                 echo 'Vérification de l’environnement Jenkins'
                 echo '======================================'
 
-                sh '''
-                    echo "Node.js:"
+                sh """
+                    echo "Node.js (tests):"
                     node --version
 
                     echo "npm:"
                     npm --version
+
+                    echo "Node.js (analyseur SonarQube):"
+                    if [ -x "${SONAR_NODEJS}" ]; then
+                        "${SONAR_NODEJS}" --version
+                    else
+                        echo "ABSENT -> ${SONAR_NODEJS} (rebuild jenkins/Dockerfile)"
+                    fi
 
                     echo "Git:"
                     git --version
 
                     echo "Chromium:"
                     chromium --version
-                '''
+                """
             }
         }
 
@@ -88,8 +111,8 @@ pipeline {
 
         stage('SonarQube') {
             options {
-                // SonarQube peut prendre plusieurs minutes
-                timeout(time: 10, unit: 'MINUTES')
+                // L'analyse dure ~30 s avec Node 18 (contre ~7 min avec Node 22).
+                timeout(time: 15, unit: 'MINUTES')
             }
 
             steps {
@@ -102,7 +125,15 @@ pipeline {
 
                     withSonarQubeEnv('SonarQube') {
                         sh """
-                            ${scannerHome}/bin/sonar-scanner
+                            # Échoue vite et clairement si le Node 18 dédié manque
+                            # (sinon le scanner retombe sur Node 22 et devient très lent).
+                            test -x "${SONAR_NODEJS}" || {
+                                echo "ERREUR : ${SONAR_NODEJS} introuvable."
+                                echo "Reconstruire l'image Jenkins : docker compose build jenkins"
+                                exit 1
+                            }
+
+                            "${scannerHome}/bin/sonar-scanner" -Dsonar.nodejs.executable="${SONAR_NODEJS}"
                         """
                     }
                 }
@@ -121,6 +152,13 @@ pipeline {
         success {
             echo '======================================'
             echo 'Pipeline terminé avec succès.'
+            echo '======================================'
+        }
+
+        aborted {
+            echo '======================================'
+            echo 'Pipeline interrompu (timeout ou arrêt de Jenkins).'
+            echo 'Vérifier que Jenkins n’a pas redémarré pendant le build.'
             echo '======================================'
         }
 
