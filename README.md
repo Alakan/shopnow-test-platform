@@ -103,6 +103,9 @@ Atteindre une couverture de tests significative sans modifier artificiellement l
 
 ## 8. Compte rendu du TP — résultats validés
 
+Nom : BASTIDE
+Prénom : Anthony
+
 ### 8.1. Informations générales
 - Projet : ShopNow Test Platform
 - Date : 18/09/2026
