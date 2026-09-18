@@ -39,9 +39,15 @@ services:
 
   jenkins:
     build: ./jenkins
+    network_mode: host
+    extra_hosts:
+      - "github.com:140.82.121.4"
     container_name: jenkins
     user: root
     privileged: true
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     ports:
       - "8080:8080"
       - "50000:50000"

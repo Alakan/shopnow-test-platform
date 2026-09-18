@@ -81,4 +81,17 @@ RUN echo "========================================" && \
     docker --version && \
     echo "========================================"
 
+RUN jenkins-plugin-cli --plugins \
+    git \
+    github \
+    workflow-aggregator \
+    pipeline-stage-view \
+    credentials-binding \
+    docker-workflow \
+    sonar
+
+RUN apt-get update && \
+    apt-get install -y firefox-esr
+
+
 USER jenkins

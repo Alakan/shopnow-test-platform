@@ -9,11 +9,6 @@ describe('E2E - navigation ShopNow', function () {
 
     before(async function () {
         const options = new firefox.Options();
-        
-        options.setBinary(
-            '/usr/bin/firefox'
-        );
-
         options.addArguments('-headless');
 
         driver = await new Builder()
