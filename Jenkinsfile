@@ -1,3 +1,4 @@
+```groovy
 pipeline {
 
     agent any
@@ -17,20 +18,29 @@ pipeline {
 
     stages {
 
+        // ============================================================
+        // 1. CHECKOUT
+        // ============================================================
+
         stage('Checkout') {
             steps {
                 echo '======================================'
-                echo 'Checkout du projet'
+                echo 'CHECKOUT DU PROJET'
                 echo '======================================'
 
                 checkout scm
             }
         }
 
+
+        // ============================================================
+        // 2. ENVIRONMENT
+        // ============================================================
+
         stage('Environment') {
             steps {
                 echo '======================================'
-                echo 'Vérification de l’environnement'
+                echo 'VERIFICATION DE L ENVIRONNEMENT'
                 echo '======================================'
 
                 sh '''
@@ -54,64 +64,103 @@ pipeline {
                     echo ""
                     echo "Chromium :"
                     chromium --version || google-chrome --version || true
+
+                    echo ""
+                    echo "Workspace :"
+                    pwd
                 '''
             }
         }
 
+
+        // ============================================================
+        // 3. INSTALLATION
+        // ============================================================
+
         stage('Installation') {
             steps {
                 echo '======================================'
-                echo 'Installation des dépendances'
+                echo 'INSTALLATION DES DEPENDANCES'
                 echo '======================================'
 
                 sh '''
                     set -e
 
                     if [ -f package-lock.json ]; then
+
+                        echo "package-lock.json trouve"
+                        echo "Execution de npm ci..."
+
                         npm ci \
                             --cache /var/jenkins_home/.npm-cache \
                             --prefer-offline \
                             --no-audit \
                             --no-fund
+
                     else
+
+                        echo "package-lock.json absent"
+                        echo "Execution de npm install..."
+
                         npm install \
                             --no-audit \
                             --no-fund
+
                     fi
+
+                    echo ""
+                    echo "Installation terminee."
                 '''
             }
         }
 
+
+        // ============================================================
+        // 4. TESTS UNITAIRES
+        // ============================================================
+
         stage('Tests unitaires') {
             steps {
                 echo '======================================'
-                echo 'Tests unitaires'
+                echo 'TESTS UNITAIRES'
                 echo '======================================'
 
                 sh '''
                     set -e
+
                     npm run test:unit
                 '''
             }
         }
 
+
+        // ============================================================
+        // 5. TESTS API / INTEGRATION
+        // ============================================================
+
         stage('Tests API') {
             steps {
                 echo '======================================'
-                echo 'Tests API / intégration'
+                echo 'TESTS API / INTEGRATION'
                 echo '======================================'
 
                 sh '''
                     set -e
+
                     npm run test:integration
                 '''
             }
         }
 
+
+        // ============================================================
+        // 6. COVERAGE
+        // ============================================================
+
         stage('Coverage') {
             steps {
                 echo '======================================'
-                echo 'Calcul de la couverture'
+                echo 'COVERAGE DES TESTS'
                 echo '======================================'
 
                 sh '''
@@ -121,18 +170,23 @@ pipeline {
 
                     npm run test:coverage
 
+                    echo ""
+                    echo "Verification du rapport LCOV..."
+
                     if [ ! -f coverage/lcov.info ]; then
                         echo "ERREUR : coverage/lcov.info introuvable."
                         exit 1
                     fi
 
-                    echo "Rapport LCOV généré."
+                    echo "Rapport LCOV OK :"
                     ls -lh coverage/lcov.info
                 '''
             }
 
             post {
                 always {
+                    echo 'Archivage du rapport de couverture...'
+
                     archiveArtifacts(
                         artifacts: 'coverage/**',
                         allowEmptyArchive: true,
@@ -142,96 +196,202 @@ pipeline {
             }
         }
 
+
+        // ============================================================
+        // 7. SONARQUBE
+        // ============================================================
+
         stage('SonarQube') {
+
             options {
                 timeout(time: 15, unit: 'MINUTES')
             }
 
             steps {
+
                 echo '======================================'
-                echo 'Analyse SonarQube'
+                echo 'ANALYSE SONARQUBE'
                 echo '======================================'
 
                 script {
+
                     def scannerHome = tool 'SonarScanner'
 
                     withSonarQubeEnv('SonarQube') {
+
                         sh """
                             set -e
 
-                            echo "Node.js utilisé :"
+                            echo "======================================"
+                            echo "ENVIRONNEMENT SONARQUBE"
+                            echo "======================================"
+
+                            echo "Node.js :"
                             node --version
 
                             echo "npm :"
                             npm --version
 
-                            echo "Lancement de SonarScanner..."
-
+                            echo ""
+                            echo "SonarScanner :"
                             ${scannerHome}/bin/sonar-scanner
+
+                            echo ""
+                            echo "Analyse SonarQube terminee."
                         """
                     }
                 }
             }
         }
 
+
+        // ============================================================
+        // 8. QUALITY GATE
+        // ============================================================
+
         stage('Quality Gate') {
+
             options {
-                timeout(time: 5, unit: 'MINUTES')
+                timeout(time: 10, unit: 'MINUTES')
             }
 
             steps {
+
                 echo '======================================'
-                echo 'Quality Gate SonarQube'
+                echo 'QUALITY GATE SONARQUBE'
                 echo '======================================'
 
                 script {
+
+                    /*
+                     * waitForQualityGate attend la notification
+                     * envoyee par le webhook SonarQube.
+                     *
+                     * Webhook a configurer dans SonarQube :
+                     *
+                     * http://jenkins:8080/sonarqube-webhook/
+                     */
+
                     def qualityGate = waitForQualityGate()
 
-                    echo "Quality Gate : ${qualityGate.status}"
+                    echo ""
+                    echo "======================================"
+                    echo "RESULTAT QUALITY GATE"
+                    echo "======================================"
+
+                    echo "Status : ${qualityGate.status}"
 
                     if (qualityGate.status != 'OK') {
-                        error "Quality Gate SonarQube non conforme : ${qualityGate.status}"
+
+                        error(
+                            "Quality Gate SonarQube non conforme : " +
+                            qualityGate.status
+                        )
                     }
+
+                    echo ""
+                    echo "Quality Gate SonarQube : OK"
                 }
             }
         }
     }
 
+
+    // ================================================================
+    // POST BUILD
+    // ================================================================
+
     post {
 
         success {
+
             echo '''
 ======================================
-BUILD SUCCESS
+             BUILD SUCCESS
 ======================================
-ShopNow CI terminé avec succès.
 
-Étapes validées :
-- Checkout
-- Environment
-- Installation
-- Tests unitaires
-- Tests API
-- Coverage
-- SonarQube
-- Quality Gate
+Projet : ShopNow Test Platform
+
+Etapes validees :
+
+[OK] Checkout GitLab
+[OK] Verification environnement
+[OK] Installation npm
+[OK] Tests unitaires
+[OK] Tests API
+[OK] Coverage
+[OK] Analyse SonarQube
+[OK] Quality Gate
+
+======================================
+Pipeline CI termine avec succes.
 ======================================
 '''
         }
+
 
         failure {
+
             echo '''
 ======================================
-BUILD FAILURE
+             BUILD FAILURE
 ======================================
-Une ou plusieurs étapes du pipeline ont échoué.
-Consulter les logs Jenkins.
+
+Une ou plusieurs etapes du pipeline
+ont echoue.
+
+Consultez les logs Jenkins pour
+identifier l etape en erreur.
+
 ======================================
 '''
         }
 
+
+        aborted {
+
+            echo '''
+======================================
+             BUILD ABORTED
+======================================
+
+Le pipeline a ete interrompu,
+generalement a cause d un timeout
+ou d une interruption manuelle.
+
+======================================
+'''
+        }
+
+
+        unstable {
+
+            echo '''
+======================================
+             BUILD UNSTABLE
+======================================
+
+Le pipeline est termine mais
+certains resultats necessitent
+une verification.
+
+======================================
+'''
+        }
+
+
         always {
-            echo 'Build terminé.'
+
+            echo '======================================'
+            echo 'FIN DU PIPELINE'
+            echo '======================================'
+
+            sh '''
+                echo "Build termine."
+                echo "Date : $(date)"
+                echo "Workspace : $(pwd)"
+            '''
         }
     }
 }
+```
