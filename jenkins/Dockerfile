@@ -2,8 +2,12 @@ FROM jenkins/jenkins:lts-jdk21
 
 USER root
 
+ARG NODE22_VERSION=22.19.0
+ARG NODE18_VERSION=18.20.8
+ARG NODE18_ARCH=x64
+
 # ============================================================
-# Outils système
+# Outils système + navigateur
 # ============================================================
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -12,36 +16,31 @@ RUN apt-get update && \
         gnupg \
         xz-utils \
         chromium \
-        git && \
-    rm -rf /var/lib/apt/lists/*
+        git \
+        firefox-esr && \
+    rm -rf /var/lib/apt/lists/* /tmp/*
 
 # ============================================================
-# Node.js 22 : runtime applicatif
-# (npm ci, mocha, nyc, supertest)
+# Installation du Docker CLI (après ajout du dépôt Docker)
 # ============================================================
-RUN curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
-        | gpg --dearmor -o /usr/share/keyrings/nodesource.gpg && \
-    echo "deb [signed-by=/usr/share/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main" \
-        > /etc/apt/sources.list.d/nodesource.list && \
+RUN curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /usr/share/keyrings/docker.gpg && \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker.gpg] https://download.docker.com/linux/debian trixie stable" > /etc/apt/sources.list.d/docker.list && \
     apt-get update && \
-    apt-get install -y --no-install-recommends nodejs && \
-    rm -rf /var/lib/apt/lists/*
+    apt-get install -y --no-install-recommends docker-ce-cli && \
+    rm -rf /var/lib/apt/lists/* /tmp/*
 
 # ============================================================
-# Node.js 18 : runtime DÉDIÉ au scanner SonarQube
-# ------------------------------------------------------------
-# SonarQube 9.9 (analyseur JavaScript) recommande Node 18.
-# Avec Node 22 le scanner affiche :
-#   WARN Node.js version 22 is not recommended ...
-#   Sensor JavaScript analysis ... time=406821ms   (~6 min 47 s pour 4 fichiers)
-# ce qui faisait dépasser le timeout Jenkins.
-#
-# Node 18 est installé dans /opt/node18 (HORS du PATH) pour ne pas
-# toucher au Node 22 utilisé par les tests. Le Jenkinsfile pointe
-# dessus via -Dsonar.nodejs.executable.
+# Node.js 22 : runtime applicatif (tests)
 # ============================================================
-ARG NODE18_VERSION=18.20.8
-ARG NODE18_ARCH=x64
+RUN curl -fsSL "https://nodejs.org/dist/v${NODE22_VERSION}/node-v${NODE22_VERSION}-linux-x64.tar.xz" \
+        -o /tmp/node22.tar.xz && \
+    tar -xJf /tmp/node22.tar.xz -C /usr/local --strip-components=1 && \
+    rm -f /tmp/node22.tar.xz && \
+    ln -sf /usr/local/bin/node /usr/local/bin/nodejs
+
+# ============================================================
+# Node.js 18 : runtime dédié au scanner SonarQube
+# ============================================================
 RUN curl -fsSL "https://nodejs.org/dist/v${NODE18_VERSION}/node-v${NODE18_VERSION}-linux-${NODE18_ARCH}.tar.xz" \
         -o /tmp/node18.tar.xz && \
     mkdir -p /opt/node18 && \
@@ -49,36 +48,19 @@ RUN curl -fsSL "https://nodejs.org/dist/v${NODE18_VERSION}/node-v${NODE18_VERSIO
     rm -f /tmp/node18.tar.xz
 
 # ============================================================
-# Installation du Docker CLI
-# ============================================================
-RUN curl -fsSL https://download.docker.com/linux/debian/gpg \
-        | gpg --dearmor -o /usr/share/keyrings/docker.gpg && \
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker.gpg] https://download.docker.com/linux/debian trixie stable" \
-        > /etc/apt/sources.list.d/docker.list && \
-    apt-get update && \
-    apt-get install -y --no-install-recommends docker-ce-cli && \
-    rm -rf /var/lib/apt/lists/*
-
-# ============================================================
 # Vérification des versions
 # ============================================================
 RUN echo "========================================" && \
     echo "Versions installées dans Jenkins" && \
     echo "========================================" && \
-    echo "Java:" && \
-    java -version && \
-    echo "Node.js (tests):" && \
-    node --version && \
-    echo "npm:" && \
-    npm --version && \
-    echo "Node.js (analyseur SonarQube):" && \
-    /opt/node18/bin/node --version && \
-    echo "Git:" && \
-    git --version && \
-    echo "Chromium:" && \
-    chromium --version && \
-    echo "Docker CLI:" && \
-    docker --version && \
+    echo "Java:" && java -version && \
+    echo "Node.js (tests):" && node --version && \
+    echo "npm:" && npm --version && \
+    echo "Node.js (analyseur SonarQube):" && /opt/node18/bin/node --version && \
+    echo "Git:" && git --version && \
+    echo "Chromium:" && chromium --version && \
+    echo "Firefox:" && firefox --version && \
+    echo "Docker CLI:" && docker --version && \
     echo "========================================"
 
 RUN jenkins-plugin-cli --plugins \
@@ -89,9 +71,5 @@ RUN jenkins-plugin-cli --plugins \
     credentials-binding \
     docker-workflow \
     sonar
-
-RUN apt-get update && \
-    apt-get install -y firefox-esr
-
 
 USER jenkins
