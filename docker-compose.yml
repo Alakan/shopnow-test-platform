@@ -18,13 +18,29 @@ services:
       POSTGRES_PASSWORD: sonar
     volumes:
       - sonardb_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sonar -d sonarqube"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
     restart: unless-stopped
 
   sonarqube:
     image: sonarqube:lts-community
     container_name: sonarqube
     depends_on:
-      - sonardb
+      sonardb:
+        condition: service_healthy
+    command: >
+      bash -c "
+        until (echo > /dev/tcp/sonardb/5432) >/dev/null 2>&1; do
+          echo 'Waiting for PostgreSQL on sonardb:5432...';
+          sleep 2;
+        done;
+        echo 'PostgreSQL reachable; starting SonarQube';
+        exec /opt/sonarqube/docker/entrypoint.sh
+      "
     ports:
       - "9090:9000"
     environment:
@@ -39,7 +55,6 @@ services:
 
   jenkins:
     build: ./jenkins
-    network_mode: host
     extra_hosts:
       - "github.com:140.82.121.4"
     container_name: jenkins
