@@ -9,10 +9,12 @@ describe('E2E - navigation ShopNow', function () {
 
     before(async function () {
         const options = new firefox.Options();
-
+        
         options.setBinary(
-            'C:\\Program Files\\Mozilla Firefox\\firefox.exe'
+            '/usr/bin/firefox'
         );
+
+        options.addArguments('-headless');
 
         driver = await new Builder()
             .forBrowser('firefox')
